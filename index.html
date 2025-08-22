@@ -204,6 +204,7 @@
 
         #file-upload {
             margin: 10px 0;
+            padding: 5px;
         }
 
         #upload-status {
@@ -226,6 +227,12 @@
             line-height: 1.5;
             text-align: left;
         }
+
+        .tts-warning {
+            color: #ff6b6b;
+            font-size: 0.8em;
+            margin-top: 5px;
+        }
     </style>
 </head>
 <body>
@@ -238,6 +245,9 @@
             <p>Upload an audio file (MP3) or a text file (TXT)</p>
             <input type="file" id="file-upload" accept=".mp3,.txt" />
             <div id="upload-status"></div>
+            <div class="tts-warning" id="tts-warning">
+                Note: Text-to-speech may require user interaction first in some browsers.
+            </div>
         </div>
         
         <div class="player-card">
@@ -274,14 +284,7 @@
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             // 1. OUR STORY LIBRARY
-            const storyLibrary = [
-                {
-                    title: "Sample Story: The Little Star",
-                    description: "A star discovers his own special light.",
-                    coverArt: "https://placehold.co/300x300/ffd6ff/6a59a7?text=✨\nTwinkle",
-                    audioUrl: "https://www.librivox.org/uploads/alg1001/snowqueen_01_andersen_128kb.mp3?time=01:30&end=03:30"
-                }
-            ];
+            const storyLibrary = [];
 
             // 2. GET ALL OUR HTML ELEMENTS
             const audio = new Audio();
@@ -298,30 +301,31 @@
             const fileUpload = document.getElementById('file-upload');
             const uploadStatus = document.getElementById('upload-status');
             const storyTextContentEl = document.getElementById('story-text-content');
+            const ttsWarning = document.getElementById('tts-warning');
 
             // 3. TEXT-TO-SPEECH SETUP
             const speechSynth = window.speechSynthesis;
             let currentSpeechUtterance = null;
             let isPlaying = false;
-            let currentStoryIndex = 0;
-            let isTTSMode = false; // Flag to know if we're playing a text file
+            let currentStoryIndex = -1;
+            let isTTSMode = false;
 
             // 4. FUNCTION TO STOP ANY ONGOING TTS
             function stopTTS() {
                 if (speechSynth.speaking) {
                     speechSynth.cancel();
                 }
-                if (currentSpeechUtterance) {
-                    currentSpeechUtterance = null;
-                }
+                currentSpeechUtterance = null;
                 isTTSMode = false;
-                // Hide the text content display when stopping
                 storyTextContentEl.style.display = 'none';
             }
 
             // 5. FUNCTION TO LOAD A STORY
             function loadStory(index) {
-                stopTTS(); // Stop TTS if it's running
+                if (index < 0 || index >= storyLibrary.length) return;
+                
+                stopTTS();
+                currentStoryIndex = index;
 
                 const story = storyLibrary[index];
                 storyTitleEl.textContent = story.title;
@@ -331,30 +335,36 @@
                     coverArtEl.src = story.coverArt;
                 }
 
-                // Reset TTS UI elements
+                // Reset UI elements
                 storyTextContentEl.style.display = 'none';
                 progressBar.value = 0;
                 currentTimeEl.textContent = '0:00';
 
-                // Load audio for pre-defined stories
+                // Handle different story types
                 if (story.audioUrl) {
+                    // Pre-loaded audio story
                     audio.src = story.audioUrl;
                     audio.load();
                     isTTSMode = false;
-                }
-                // Handle uploaded stories
-                else if (story.uploadedFile) {
-                    if (story.fileType === 'audio') {
-                        // Create a local URL for the uploaded audio file
-                        audio.src = URL.createObjectURL(story.uploadedFile);
-                        audio.load();
-                        isTTSMode = false;
-                    } else if (story.fileType === 'text') {
-                        // Prepare for TTS
-                        isTTSMode = true;
-                        audio.src = ''; // Clear audio source
-                        storyTextContentEl.textContent = story.fileContent;
-                        storyTextContentEl.style.display = 'block'; // Show the text
+                    playPauseBtn.disabled = false;
+                } else if (story.fileType === 'audio') {
+                    // Uploaded audio story
+                    audio.src = URL.createObjectURL(story.uploadedFile);
+                    audio.load();
+                    isTTSMode = false;
+                    playPauseBtn.disabled = false;
+                } else if (story.fileType === 'text') {
+                    // Text story for TTS
+                    isTTSMode = true;
+                    audio.src = '';
+                    storyTextContentEl.textContent = story.fileContent;
+                    storyTextContentEl.style.display = 'block';
+                    playPauseBtn.disabled = false;
+                    
+                    // Check if TTS is available
+                    if (!speechSynth) {
+                        uploadStatus.textContent = "Text-to-speech is not supported in your browser.";
+                        playPauseBtn.disabled = true;
                     }
                 }
 
@@ -365,47 +375,50 @@
                     allButtons[index].classList.add('playing');
                 }
 
-                if (isPlaying) {
-                    togglePlayPause(); // This will now handle both audio and TTS
-                }
+                // Reset play button state
+                isPlaying = false;
+                playPauseBtn.textContent = '▶️';
             }
 
-            // 6. PLAY/PAUSE LOGIC (now handles both Audio and TTS)
+            // 6. PLAY/PAUSE LOGIC (handles both Audio and TTS)
             function togglePlayPause() {
+                if (currentStoryIndex === -1) return;
+                
                 if (isPlaying) {
                     // PAUSE
                     if (isTTSMode) {
-                        speechSynth.pause();
+                        if (speechSynth.speaking) {
+                            speechSynth.pause();
+                        }
                     } else {
                         audio.pause();
                     }
                     playPauseBtn.textContent = '▶️';
+                    isPlaying = false;
                 } else {
-                    // PLAY
+                    // PLAY - Need user interaction for TTS to work
                     if (isTTSMode) {
                         const story = storyLibrary[currentStoryIndex];
-                        if (!speechSynth.speaking) {
+                        if (!speechSynth.speaking && !speechSynth.paused) {
                             currentSpeechUtterance = new SpeechSynthesisUtterance(story.fileContent);
-                            // Set a pleasant voice for storytelling
-                            currentSpeechUtterance.rate = 0.9; // Slightly slower for stories
-                            currentSpeechUtterance.pitch = 1.1; // Slightly higher for engaging tone
+                            currentSpeechUtterance.rate = 0.9;
+                            currentSpeechUtterance.pitch = 1.1;
                             
-                            speechSynth.speak(currentSpeechUtterance);
-                            
-                            // Update progress for TTS (simplified)
                             currentSpeechUtterance.onend = function() {
                                 isPlaying = false;
                                 playPauseBtn.textContent = '▶️';
                             };
-                        } else {
+                            
+                            speechSynth.speak(currentSpeechUtterance);
+                        } else if (speechSynth.paused) {
                             speechSynth.resume();
                         }
                     } else {
                         audio.play();
                     }
                     playPauseBtn.textContent = '⏸️';
+                    isPlaying = true;
                 }
-                isPlaying = !isPlaying;
             }
 
             // 7. FILE UPLOAD HANDLING
@@ -414,7 +427,6 @@
                 if (!file) return;
 
                 uploadStatus.textContent = 'Uploading...';
-
                 const fileName = file.name;
                 const fileType = fileName.endsWith('.mp3') ? 'audio' : 'text';
 
@@ -423,21 +435,24 @@
                     return;
                 }
 
-                // Create a new story entry for the uploaded file
+                // Create a new story entry
                 const newStory = {
                     title: fileName,
                     description: `Your uploaded ${fileType} story`,
-                    coverArt: 'https://placehold.co/300x300/e0f7fa/00796b?text=Your+Story', // Generic cover for uploads
+                    coverArt: 'https://placehold.co/300x300/e0f7fa/00796b?text=Your+Story',
                     fileType: fileType,
                     uploadedFile: file
                 };
 
-                // Special handling for text files: read their content
+                // Handle text files
                 if (fileType === 'text') {
                     const reader = new FileReader();
                     reader.onload = function(e) {
                         newStory.fileContent = e.target.result;
                         addStoryToLibrary(newStory);
+                    };
+                    reader.onerror = function() {
+                        uploadStatus.textContent = 'Error reading text file.';
                     };
                     reader.readAsText(file);
                 } else {
@@ -448,37 +463,39 @@
                     storyLibrary.push(story);
                     createStoryButton(story, storyLibrary.length - 1);
                     uploadStatus.textContent = `"${fileName}" added successfully!`;
-                    // Auto-load the new story
-                    loadStory(storyLibrary.length - 1);
+                    
+                    // Auto-load the first story if it's the first one
+                    if (storyLibrary.length === 1) {
+                        loadStory(0);
+                    }
                 }
             });
 
-            // 8. CREATE BUTTONS FOR UPLOADED STORIES
+            // 8. CREATE BUTTONS FOR STORIES
             function createStoryButton(story, index) {
                 const button = document.createElement('button');
                 button.textContent = `${index + 1}. ${story.title}`;
                 button.classList.add('story-btn');
-                button.addEventListener('click', () => loadStory(index));
+                button.addEventListener('click', () => {
+                    // This click event provides the user interaction needed for TTS
+                    loadStory(index);
+                });
                 storyButtonsContainer.appendChild(button);
             }
 
-            // 9. REMAINING CONTROLS (Previous, Next, Progress, Mute)
+            // 9. REMAINING CONTROLS
             prevBtn.addEventListener('click', () => {
                 if (storyLibrary.length === 0) return;
-                
                 let newIndex = currentStoryIndex - 1;
                 if (newIndex < 0) newIndex = storyLibrary.length - 1;
                 loadStory(newIndex);
-                if (isPlaying) togglePlayPause();
             });
 
             nextBtn.addEventListener('click', () => {
                 if (storyLibrary.length === 0) return;
-                
                 let newIndex = currentStoryIndex + 1;
                 if (newIndex >= storyLibrary.length) newIndex = 0;
                 loadStory(newIndex);
-                if (isPlaying) togglePlayPause();
             });
 
             audio.addEventListener('timeupdate', () => {
@@ -500,8 +517,7 @@
 
             muteBtn.addEventListener('click', () => {
                 if (isTTSMode) {
-                    // TTS volume is harder to control, so we'll just warn the user
-                    uploadStatus.textContent = "Volume control may not work for text stories. Use your system volume.";
+                    uploadStatus.textContent = "Use system volume controls for text stories.";
                 } else {
                     audio.muted = !audio.muted;
                     muteBtn.textContent = audio.muted ? '🔇' : '🔊';
@@ -509,21 +525,26 @@
             });
 
             audio.addEventListener('ended', () => {
-                if (!isTTSMode) {
+                if (!isTTSMode && storyLibrary.length > 0) {
                     let newIndex = currentStoryIndex + 1;
                     if (newIndex >= storyLibrary.length) newIndex = 0;
                     loadStory(newIndex);
-                    if (isPlaying) audio.play();
                 }
             });
 
-            // 10. INITIALIZE - Create buttons for any default stories
-            storyLibrary.forEach((story, index) => createStoryButton(story, index));
-            // Load the first story if it exists
-            if (storyLibrary.length > 0) loadStory(0);
-            
-            // Add event listener for the play/pause button
+            // 10. INITIALIZE
             playPauseBtn.addEventListener('click', togglePlayPause);
+            
+            // Add a test story for demonstration
+            const testStory = {
+                title: "Try Me: Test Story",
+                description: "A sample story to test text-to-speech",
+                coverArt: "https://placehold.co/300x300/ffd6ff/6a59a7?text=Test+Story",
+                fileType: "text",
+                fileContent: "Hello! This is a test story. If you can hear this, text-to-speech is working perfectly! The quick brown fox jumps over the lazy dog. Once upon a time, in a land far away, there lived a brave knight and a clever dragon who became the best of friends."
+            };
+            storyLibrary.push(testStory);
+            createStoryButton(testStory, 0);
         });
     </script>
 </body>
