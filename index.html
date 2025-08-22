@@ -149,6 +149,47 @@
             align-items: center;
         }
 
+        /* Voice Settings */
+        .voice-settings {
+            background: #f0f7ff;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+            border: 2px solid #c0d6ff;
+        }
+
+        .voice-settings h4 {
+            margin: 0 0 10px 0;
+            color: #4a6fa5;
+        }
+
+        .voice-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        select, input[type="range"] {
+            padding: 8px;
+            border-radius: 8px;
+            border: 2px solid #c0d6ff;
+            background: white;
+            font-family: 'Comic Sans MS', cursive;
+        }
+
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .slider-value {
+            min-width: 40px;
+            text-align: center;
+            font-weight: bold;
+            color: #4a6fa5;
+        }
+
         /* Playlist Styles */
         .playlist {
             border-top: 2px dashed #ffd6ff;
@@ -233,6 +274,21 @@
             font-size: 0.8em;
             margin-top: 5px;
         }
+
+        .test-voice-btn {
+            background: #4a6fa5;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 20px;
+            cursor: pointer;
+            margin-top: 10px;
+            font-family: 'Comic Sans MS', cursive;
+        }
+
+        .test-voice-btn:hover {
+            background: #3a5f95;
+        }
     </style>
 </head>
 <body>
@@ -256,6 +312,28 @@
             <div class="story-info">
                 <h2 id="story-title">Your Story Awaits</h2>
                 <p id="story-desc">Upload a file to begin.</p>
+                
+                <!-- Voice Settings -->
+                <div class="voice-settings" id="voice-settings" style="display: none;">
+                    <h4>Voice Settings</h4>
+                    <div class="voice-controls">
+                        <select id="voice-select">
+                            <option value="">Loading voices...</option>
+                        </select>
+                        <div class="slider-container">
+                            <span>Speed:</span>
+                            <input type="range" id="rate-slider" min="0.5" max="2" step="0.1" value="1">
+                            <span class="slider-value" id="rate-value">1.0</span>
+                        </div>
+                        <div class="slider-container">
+                            <span>Pitch:</span>
+                            <input type="range" id="pitch-slider" min="0.5" max="2" step="0.1" value="1">
+                            <span class="slider-value" id="pitch-value">1.0</span>
+                        </div>
+                        <button class="test-voice-btn" id="test-voice-btn">Test Voice</button>
+                    </div>
+                </div>
+                
                 <!-- This will show the text content for TTS -->
                 <div id="story-text-content"></div>
             </div>
@@ -302,6 +380,13 @@
             const uploadStatus = document.getElementById('upload-status');
             const storyTextContentEl = document.getElementById('story-text-content');
             const ttsWarning = document.getElementById('tts-warning');
+            const voiceSettings = document.getElementById('voice-settings');
+            const voiceSelect = document.getElementById('voice-select');
+            const rateSlider = document.getElementById('rate-slider');
+            const pitchSlider = document.getElementById('pitch-slider');
+            const rateValue = document.getElementById('rate-value');
+            const pitchValue = document.getElementById('pitch-value');
+            const testVoiceBtn = document.getElementById('test-voice-btn');
 
             // 3. TEXT-TO-SPEECH SETUP
             const speechSynth = window.speechSynthesis;
@@ -309,8 +394,93 @@
             let isPlaying = false;
             let currentStoryIndex = -1;
             let isTTSMode = false;
+            let availableVoices = [];
 
-            // 4. FUNCTION TO STOP ANY ONGOING TTS
+            // 4. LOAD AVAILABLE VOICES
+            function loadVoices() {
+                availableVoices = speechSynth.getVoices();
+                voiceSelect.innerHTML = '';
+                
+                // Filter for more natural-sounding voices (often have language codes)
+                const naturalVoices = availableVoices.filter(voice => 
+                    voice.lang.includes('en') && !voice.name.includes('Google') && !voice.name.includes('Microsoft')
+                );
+                
+                const popularVoices = availableVoices.filter(voice => 
+                    voice.name.includes('Google') || voice.name.includes('Microsoft') || voice.name.includes('Samantha') || voice.name.includes('Daniel')
+                );
+                
+                // Add popular voices first
+                popularVoices.forEach(voice => {
+                    const option = document.createElement('option');
+                    option.value = voice.name;
+                    option.textContent = `${voice.name} (${voice.lang})`;
+                    voiceSelect.appendChild(option);
+                });
+                
+                // Add other English voices
+                naturalVoices.forEach(voice => {
+                    if (!popularVoices.includes(voice)) {
+                        const option = document.createElement('option');
+                        option.value = voice.name;
+                        option.textContent = `${voice.name} (${voice.lang})`;
+                        voiceSelect.appendChild(option);
+                    }
+                });
+                
+                // Add all other voices
+                availableVoices.forEach(voice => {
+                    if (!popularVoices.includes(voice) && !naturalVoices.includes(voice)) {
+                        const option = document.createElement('option');
+                        option.value = voice.name;
+                        option.textContent = `${voice.name} (${voice.lang})`;
+                        voiceSelect.appendChild(option);
+                    }
+                });
+                
+                // Try to select a good default voice
+                const defaultVoice = popularVoices[0] || naturalVoices[0] || (availableVoices.length > 0 ? availableVoices[0] : null);
+                if (defaultVoice) {
+                    voiceSelect.value = defaultVoice.name;
+                }
+            }
+
+            // Load voices when they become available
+            if (speechSynth.onvoiceschanged !== undefined) {
+                speechSynth.onvoiceschanged = loadVoices;
+            }
+            // Load voices immediately if they're already available
+            setTimeout(loadVoices, 100);
+
+            // 5. UPDATE SLIDER VALUES
+            rateSlider.addEventListener('input', function() {
+                rateValue.textContent = this.value;
+            });
+
+            pitchSlider.addEventListener('input', function() {
+                pitchValue.textContent = this.value;
+            });
+
+            // 6. TEST VOICE FUNCTIONALITY
+            testVoiceBtn.addEventListener('click', function() {
+                const selectedVoiceName = voiceSelect.value;
+                const selectedVoice = availableVoices.find(voice => voice.name === selectedVoiceName);
+                const rate = parseFloat(rateSlider.value);
+                const pitch = parseFloat(pitchSlider.value);
+                
+                if (selectedVoice) {
+                    const testUtterance = new SpeechSynthesisUtterance(
+                        "Hello! This is what your selected voice sounds like. Perfect for bedtime stories!"
+                    );
+                    testUtterance.voice = selectedVoice;
+                    testUtterance.rate = rate;
+                    testUtterance.pitch = pitch;
+                    
+                    speechSynth.speak(testUtterance);
+                }
+            });
+
+            // 7. FUNCTION TO STOP ANY ONGOING TTS
             function stopTTS() {
                 if (speechSynth.speaking) {
                     speechSynth.cancel();
@@ -320,7 +490,7 @@
                 storyTextContentEl.style.display = 'none';
             }
 
-            // 5. FUNCTION TO LOAD A STORY
+            // 8. FUNCTION TO LOAD A STORY
             function loadStory(index) {
                 if (index < 0 || index >= storyLibrary.length) return;
                 
@@ -347,12 +517,14 @@
                     audio.load();
                     isTTSMode = false;
                     playPauseBtn.disabled = false;
+                    voiceSettings.style.display = 'none';
                 } else if (story.fileType === 'audio') {
                     // Uploaded audio story
                     audio.src = URL.createObjectURL(story.uploadedFile);
                     audio.load();
                     isTTSMode = false;
                     playPauseBtn.disabled = false;
+                    voiceSettings.style.display = 'none';
                 } else if (story.fileType === 'text') {
                     // Text story for TTS
                     isTTSMode = true;
@@ -360,6 +532,7 @@
                     storyTextContentEl.textContent = story.fileContent;
                     storyTextContentEl.style.display = 'block';
                     playPauseBtn.disabled = false;
+                    voiceSettings.style.display = 'block';
                     
                     // Check if TTS is available
                     if (!speechSynth) {
@@ -380,7 +553,7 @@
                 playPauseBtn.textContent = '▶️';
             }
 
-            // 6. PLAY/PAUSE LOGIC (handles both Audio and TTS)
+            // 9. PLAY/PAUSE LOGIC (handles both Audio and TTS)
             function togglePlayPause() {
                 if (currentStoryIndex === -1) return;
                 
@@ -396,15 +569,30 @@
                     playPauseBtn.textContent = '▶️';
                     isPlaying = false;
                 } else {
-                    // PLAY - Need user interaction for TTS to work
+                    // PLAY
                     if (isTTSMode) {
                         const story = storyLibrary[currentStoryIndex];
+                        const selectedVoiceName = voiceSelect.value;
+                        const selectedVoice = availableVoices.find(voice => voice.name === selectedVoiceName);
+                        const rate = parseFloat(rateSlider.value);
+                        const pitch = parseFloat(pitchSlider.value);
+                        
                         if (!speechSynth.speaking && !speechSynth.paused) {
                             currentSpeechUtterance = new SpeechSynthesisUtterance(story.fileContent);
-                            currentSpeechUtterance.rate = 0.9;
-                            currentSpeechUtterance.pitch = 1.1;
+                            
+                            if (selectedVoice) {
+                                currentSpeechUtterance.voice = selectedVoice;
+                            }
+                            currentSpeechUtterance.rate = rate;
+                            currentSpeechUtterance.pitch = pitch;
                             
                             currentSpeechUtterance.onend = function() {
+                                isPlaying = false;
+                                playPauseBtn.textContent = '▶️';
+                            };
+                            
+                            currentSpeechUtterance.onerror = function() {
+                                uploadStatus.textContent = "Error with text-to-speech. Try a different voice.";
                                 isPlaying = false;
                                 playPauseBtn.textContent = '▶️';
                             };
@@ -421,7 +609,7 @@
                 }
             }
 
-            // 7. FILE UPLOAD HANDLING
+            // 10. FILE UPLOAD HANDLING
             fileUpload.addEventListener('change', function(event) {
                 const file = event.target.files[0];
                 if (!file) return;
@@ -471,19 +659,18 @@
                 }
             });
 
-            // 8. CREATE BUTTONS FOR STORIES
+            // 11. CREATE BUTTONS FOR STORIES
             function createStoryButton(story, index) {
                 const button = document.createElement('button');
                 button.textContent = `${index + 1}. ${story.title}`;
                 button.classList.add('story-btn');
                 button.addEventListener('click', () => {
-                    // This click event provides the user interaction needed for TTS
                     loadStory(index);
                 });
                 storyButtonsContainer.appendChild(button);
             }
 
-            // 9. REMAINING CONTROLS
+            // 12. REMAINING CONTROLS
             prevBtn.addEventListener('click', () => {
                 if (storyLibrary.length === 0) return;
                 let newIndex = currentStoryIndex - 1;
@@ -532,16 +719,16 @@
                 }
             });
 
-            // 10. INITIALIZE
+            // 13. INITIALIZE
             playPauseBtn.addEventListener('click', togglePlayPause);
             
             // Add a test story for demonstration
             const testStory = {
                 title: "Try Me: Test Story",
-                description: "A sample story to test text-to-speech",
+                description: "A sample story to test text-to-speech with different voices",
                 coverArt: "https://placehold.co/300x300/ffd6ff/6a59a7?text=Test+Story",
                 fileType: "text",
-                fileContent: "Hello! This is a test story. If you can hear this, text-to-speech is working perfectly! The quick brown fox jumps over the lazy dog. Once upon a time, in a land far away, there lived a brave knight and a clever dragon who became the best of friends."
+                fileContent: "Hello! This is a test story. If you can hear this, text-to-speech is working perfectly! The quick brown fox jumps over the lazy dog. Once upon a time, in a land far away, there lived a brave knight and a clever dragon who became the best of friends. They went on many adventures together under the twinkling stars."
             };
             storyLibrary.push(testStory);
             createStoryButton(testStory, 0);
